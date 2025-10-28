@@ -135,6 +135,16 @@ CREATE_PRODUCT_PAYLOAD='{
 call_api POST "/v1/products" "${CREATE_PRODUCT_PAYLOAD}"
 PRODUCT_ID=$(extract_from_last '.id' 'o id do produto')
 
+log "Criar segundo produto"
+CREATE_SECOND_PRODUCT_PAYLOAD=$(jq -n \
+  --arg title "Smoke Pellet ${RUN_ID}" \
+  --arg desc "Pelotas de fumaça para fuga rápida" \
+  --arg slug "smoke-pellet-${RUN_ID}" \
+  --argjson price 175.50 \
+  '{title: $title, description: $desc, slug: $slug, price: $price}')
+call_api POST "/v1/products" "${CREATE_SECOND_PRODUCT_PAYLOAD}"
+SECOND_PRODUCT_ID=$(extract_from_last '.id' 'o id do segundo produto')
+
 log "Criar produtos em massa"
 for i in $(seq 1 20); do
   BULK_PRODUCT_PAYLOAD=$(jq -n --arg title "Gadget ${RUN_ID}_$i" \
@@ -175,8 +185,25 @@ EOF
 call_api POST "/v1/orders" "${CREATE_ORDER_PAYLOAD}"
 ORDER_ID=$(extract_from_last '.id' 'o id do pedido')
 
+log "Criar pedido adicional com múltiplos itens"
+CREATE_SECOND_ORDER_PAYLOAD=$(cat <<EOF
+{
+  "customerId": "${CUSTOMER_ID}",
+  "lines": [
+    { "productId": "${PRODUCT_ID}", "quantity": 1 },
+    { "productId": "${SECOND_PRODUCT_ID}", "quantity": 2 }
+  ]
+}
+EOF
+)
+call_api POST "/v1/orders" "${CREATE_SECOND_ORDER_PAYLOAD}"
+SECOND_ORDER_ID=$(extract_from_last '.id' 'o id do segundo pedido')
+
 log "Buscar pedido por ID"
 call_api GET "/v1/orders/${ORDER_ID}"
+
+log "Buscar segundo pedido por ID"
+call_api GET "/v1/orders/${SECOND_ORDER_ID}"
 
 log "Listar pedidos - sort total asc"
 call_api GET "/v1/orders?page=1&pageSize=5&sortBy=total&sortOrder=asc"
@@ -186,8 +213,26 @@ log "Listar pedidos - sort createdAt desc"
 call_api GET "/v1/orders?page=1&pageSize=5&sortBy=createdAt&sortOrder=desc"
 printf 'Total pedidos: %s\n' "$(printf '%s' "$LAST_BODY" | jq '.total')"
 
+log "Relatório de vendas por cliente"
+call_api GET "/v1/reports/sales-by-customer"
+
+log "Relatório de vendas por cliente (período completo)"
+call_api GET "/v1/reports/sales-by-customer?startDate=2020-01-01T00:00:00Z&endDate=2100-01-01T00:00:00Z"
+
+log "Relatório de faturamento diário"
+call_api GET "/v1/reports/revenue-by-period?groupBy=day"
+
+log "Relatório de faturamento mensal"
+call_api GET "/v1/reports/revenue-by-period?groupBy=month&startDate=2020-01-01T00:00:00Z&endDate=2100-01-01T00:00:00Z"
+
+log "Relatório de faturamento anual"
+call_api GET "/v1/reports/revenue-by-period?groupBy=year"
+
 log "Remover produto"
 call_api DELETE "/v1/products/${PRODUCT_ID}"
+
+log "Remover segundo produto"
+call_api DELETE "/v1/products/${SECOND_PRODUCT_ID}"
 
 log "Remover cliente"
 call_api DELETE "/v1/customers/${CUSTOMER_ID}"

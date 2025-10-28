@@ -2,8 +2,9 @@
 using BugStore.Application.Handlers.Customers;
 using BugStore.Application.Handlers.Orders;
 using BugStore.Application.Handlers.Products;
+using BugStore.Application.Handlers.Reports;
+using BugStore.Application.Responses.Reports;
 using BugStore.Infrastructure.Data;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using CustomerCreateRequest = BugStore.Application.Requests.Customers.Create;
 using CustomerUpdateRequest = BugStore.Application.Requests.Customers.Update;
@@ -18,6 +19,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<CustomerHandler>();
 builder.Services.AddScoped<ProductHandler>();
 builder.Services.AddScoped<OrderHandler>();
+builder.Services.AddScoped<ReportHandler>();
 
 var app = builder.Build();
 
@@ -122,6 +124,37 @@ app.MapPost("/v1/orders", async (OrderCreateRequest request, OrderHandler handle
         : Results.Created($"/v1/orders/{order.Id}", order);
 });
 
+app.MapGet("/v1/reports/sales-by-customer", async ([AsParameters] ReportQuery query, ReportHandler handler, CancellationToken cancellationToken) =>
+{
+    if (query.StartDate.HasValue && query.EndDate.HasValue && query.StartDate > query.EndDate)
+        return Results.BadRequest("O parâmetro startDate não pode ser maior que endDate.");
+
+    var result = await handler.GetSalesByCustomerAsync(query.StartDate, query.EndDate, cancellationToken);
+    return Results.Ok(result);
+});
+
+app.MapGet("/v1/reports/revenue-by-period", async ([AsParameters] ReportQuery query, ReportHandler handler, CancellationToken cancellationToken) =>
+{
+    if (query.StartDate.HasValue && query.EndDate.HasValue && query.StartDate > query.EndDate)
+        return Results.BadRequest("O parâmetro startDate não pode ser maior que endDate.");
+
+    var (isValid, period) = TryParsePeriod(query.GroupBy);
+    if (!isValid)
+        return Results.BadRequest("Valor inválido para groupBy. Utilize day, month ou year.");
+
+    var result = await handler.GetRevenueByPeriodAsync(query.StartDate, query.EndDate, period, cancellationToken);
+    return Results.Ok(result);
+});
+
+static (bool IsValid, RevenuePeriod Period) TryParsePeriod(string? groupBy) =>
+    (groupBy ?? "day").ToLowerInvariant() switch
+    {
+        "day" or "" => (true, RevenuePeriod.Day),
+        "month" => (true, RevenuePeriod.Month),
+        "year" => (true, RevenuePeriod.Year),
+        _ => (false, RevenuePeriod.Day)
+    };
+
 app.Run();
 
 public partial class Program;
@@ -132,3 +165,8 @@ public record ListQuery(
     int PageSize = 25,
     string? SortBy = null,
     string? SortOrder = null);
+
+public record ReportQuery(
+    DateTime? StartDate = null,
+    DateTime? EndDate = null,
+    string? GroupBy = "day");
